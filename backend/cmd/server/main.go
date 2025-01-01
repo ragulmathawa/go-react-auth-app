@@ -11,8 +11,10 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/ragulmathawa/go-react-auth-app/pkg/api"
 	"github.com/ragulmathawa/go-react-auth-app/pkg/db"
 	"github.com/ragulmathawa/go-react-auth-app/pkg/utils"
+	sloggin "github.com/samber/slog-gin"
 	"github.com/supertokens/supertokens-golang/recipe/emailpassword"
 	"github.com/supertokens/supertokens-golang/recipe/session"
 	"github.com/supertokens/supertokens-golang/recipe/thirdparty"
@@ -42,6 +44,7 @@ func initHttpServer(appConfig utils.AppConfig) {
 	}
 
 	router := gin.New()
+	router.Use(sloggin.New(slog.Default()))
 	router.SetTrustedProxies(nil)
 	// Adding the SuperTokens middleware
 	router.Use(cors.New(cors.Config{
@@ -65,6 +68,9 @@ func initHttpServer(appConfig utils.AppConfig) {
 		// we call Abort so that the next handler in the chain is not called, unless we call Next explicitly
 		c.Abort()
 	})
+
+	apiRouter := router.Group("/api")
+	api.InitApi(apiRouter, appConfig)
 
 	srv := &http.Server{
 		Addr:    ":8080",
