@@ -1,12 +1,17 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"log"
 	"log/slog"
 	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/ragulmathawa/go-react-auth-app/pkg/db"
 	"github.com/ragulmathawa/go-react-auth-app/pkg/utils"
 	"github.com/supertokens/supertokens-golang/recipe/emailpassword"
 	"github.com/supertokens/supertokens-golang/recipe/session"
@@ -21,13 +26,24 @@ func main() {
 	utils.InitLogging(appConfig)
 
 	initSuperTokens(appConfig)
+	db.InitSqlite(appConfig)
+	defer db.CloseDB()
+	initHttpServer(appConfig) // with graceful shutdown
+
+}
+
+func initHttpServer(appConfig utils.AppConfig) {
+	// Create context that listens for the interrupt signal from the OS.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	if appConfig.Mode == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
+
 	router := gin.New()
 	router.SetTrustedProxies(nil)
-
+	// Adding the SuperTokens middleware
 	router.Use(cors.New(cors.Config{
 		AllowOrigins: []string{appConfig.WebsiteDomain},
 		AllowMethods: []string{"GET", "POST", "DELETE", "PUT", "OPTIONS"},
@@ -41,7 +57,6 @@ func main() {
 		})
 	})
 
-	// Adding the SuperTokens middleware
 	router.Use(func(c *gin.Context) {
 		supertokens.Middleware(http.HandlerFunc(
 			func(rw http.ResponseWriter, r *http.Request) {
@@ -51,18 +66,40 @@ func main() {
 		c.Abort()
 	})
 
-	slog.Info("Starting server", "port", appConfig.Port)
-	err := router.Run(fmt.Sprintf(":%d", appConfig.Port))
-	if err != nil {
-		slog.Error("Unable to start server", err)
+	srv := &http.Server{
+		Addr:    ":8080",
+		Handler: router.Handler(),
 	}
+
+	go func() {
+		slog.Info("Starting server", "port", appConfig.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	// Listen for the interrupt signal.
+	<-ctx.Done()
+
+	// Restore default behavior on the interrupt signal and notify user of shutdown.
+	stop()
+	log.Println("shutting down gracefully, press Ctrl+C again to force")
+
+	// The context is used to inform the server it has 5 seconds to finish
+	// the request it is currently handling
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown: ", err)
+	}
+
+	log.Println("Server exiting")
 }
 
 func initSuperTokens(appConfig utils.AppConfig) {
 	// These are the connection details of the app you created on supertokens.com
 	// We have provided you with development keys which you can use for testing.
 	// IMPORTANT: Please replace them with your own OAuth keys for production use.
-	// initializes session features
 
 	apiBasePath := "/api/auth"
 	websiteBasePath := "/auth"
@@ -126,7 +163,7 @@ func initSuperTokens(appConfig utils.AppConfig) {
 				},
 			}),
 			emailpassword.Init(nil),
-			session.Init(nil),
+			session.Init(nil), // initializes session features
 		},
 	})
 

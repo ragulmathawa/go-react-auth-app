@@ -17,6 +17,7 @@ type AppConfig struct {
 	Mode          string
 	LogLevel      string
 	AuthDebug     bool
+	DBFilePath    string
 }
 
 func getEnvStringOrError(key string) string {
@@ -70,5 +71,6 @@ func GetAppConfig() AppConfig {
 		Mode:          getEnvString("MODE", "production"),
 		LogLevel:      getEnvString("LOG_LEVEL", "info"),
 		AuthDebug:     getEnvBool("AUTH_DEBUG", false),
+		DBFilePath:    getEnvString("DB_FILE_PATH", "data.db"),
 	}
 }
